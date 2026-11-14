@@ -32,21 +32,20 @@ jobs:
       - name: Run both suites against the full checkout
         shell: bash
         run: |
+          logs="$RUNNER_TEMP/day-trader-evaluation-tests"
+          mkdir -p "$logs"
           set +e
-          python -m unittest discover -s tests -v > upstream-tests.log 2>&1
+          python -m unittest discover -s tests -v > "$logs/upstream-tests.log" 2>&1
           upstream=$?
-          python -m unittest discover -s evaluation -p 'test_*.py' -v > evaluation-tests.log 2>&1
+          python -m unittest discover -s evaluation -p 'test_*.py' -v > "$logs/evaluation-tests.log" 2>&1
           evaluation=$?
-          cat upstream-tests.log evaluation-tests.log
-          printf 'upstream_exit=%s\nevaluation_exit=%s\n' "$upstream" "$evaluation" > test-exit-codes.txt
+          cat "$logs/upstream-tests.log" "$logs/evaluation-tests.log"
+          printf 'upstream_exit=%s\nevaluation_exit=%s\n' "$upstream" "$evaluation" > "$logs/test-exit-codes.txt"
           test "$upstream" -eq 0 && test "$evaluation" -eq 0
       - name: Preserve test logs even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: offline-integration-test-logs
-          path: |
-            upstream-tests.log
-            evaluation-tests.log
-            test-exit-codes.txt
+          path: ${{ runner.temp }}/day-trader-evaluation-tests/
           if-no-files-found: warn
