@@ -1,0 +1,79 @@
+name: Manual simulated ORB account evaluation
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: 'Required comma-separated tickers; input order breaks simultaneous-entry ties (not a historical scanner)'
+        required: true
+        type: string
+      or_minutes:
+        description: 'Required upstream ORB opening-range minutes: multiple of five, 5 to 385'
+        required: true
+        type: string
+      stop_rule:
+        description: 'Required upstream long stop rule: or_mid or or_low'
+        required: true
+        type: string
+      target_r:
+        description: 'Required positive target R; no strategy parameters are invented for you'
+        required: true
+        type: string
+      fee_per_fill:
+        description: 'USD fee for each entry or exit fill; default zero is idealized'
+        default: '0'
+        type: string
+      accept_limitations:
+        description: 'Accept ORB-only, idealized fills, reusable cash, no historical scanner/Claude/Monte Carlo replay (read evaluation/README.md)'
+        required: true
+        default: false
+        type: boolean
+      allow_partial:
+        description: 'Explicitly allow missing/incomplete/half-day sessions; partial results will be labeled'
+        default: false
+        type: boolean
+permissions:
+  contents: read
+concurrency:
+  group: simulated-account-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run offline ledger and pinned-upstream integration tests
+        shell: bash
+        run: |
+          mkdir -p evaluation-test-results
+          python -m unittest discover -s evaluation -p 'test_*.py' -v 2>&1 | tee evaluation-test-results/tests.log
+      - name: Historical simulated account (no broker or AI calls)
+        shell: bash
+        env:
+          SYMBOLS: ${{ inputs.symbols }}
+          OR_MINUTES: ${{ inputs.or_minutes }}
+          STOP_RULE: ${{ inputs.stop_rule }}
+          TARGET_R: ${{ inputs.target_r }}
+          FEE: ${{ inputs.fee_per_fill }}
+          ACCEPT: ${{ inputs.accept_limitations }}
+          PARTIAL: ${{ inputs.allow_partial }}
+        run: |
+          args=(--symbols "$SYMBOLS" --or-minutes "$OR_MINUTES" --stop-rule "$STOP_RULE" --target-r "$TARGET_R" --fee-per-fill "$FEE")
+          if [[ "$ACCEPT" == 'true' ]]; then args+=(--accept-limitations); fi
+          if [[ "$PARTIAL" == 'true' ]]; then args+=(--allow-partial); fi
+          python evaluation/runner.py "${args[@]}"
+      - name: Retain results and failure diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulated-account-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evaluation-results/
+            evaluation-test-results/
+          if-no-files-found: warn
+          retention-days: 30
